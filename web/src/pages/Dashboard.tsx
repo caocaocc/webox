@@ -107,6 +107,7 @@ export default function Dashboard() {
   const [trafficLifetime, setTrafficLifetime] = useState<MonitoringLifetimeStats>(defaultMonitoringLifetime);
   const [chartExpanded, setChartExpanded] = useState(false);
   const [chartPeriod, setChartPeriod] = useState<string>('1h');
+  const [chartMode, setChartMode] = useState<'speed' | 'volume'>('speed');
   const historyRef = useRef<TrafficHistoryPoint[]>([]);
   const [displayHistory, setDisplayHistory] = useState<TrafficHistoryPoint[]>([]);
   const lastChartFlushRef = useRef(0);
@@ -196,8 +197,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  const chartData = useMemo(() => {
-    // For long periods (API-fetched), data is already time-filtered and averaged
+  const speedData = useMemo(() => {
     const isLongPeriod = selectedPeriod.hours > 0;
     let filtered: TrafficHistoryPoint[];
 
@@ -223,7 +223,6 @@ export default function Dashboard() {
       const rawDown = Math.max(0, toNumber(point.down_bps));
 
       if (isLongPeriod) {
-        // Backend already averaged the data, no EMA needed
         return {
           ...point,
           epoch: Date.parse(point.timestamp),
@@ -248,6 +247,27 @@ export default function Dashboard() {
       };
     });
   }, [displayHistory, selectedPeriod]);
+
+  const chartData = useMemo(() => {
+    if (chartMode === 'speed') return speedData;
+
+    let cumUp = 0;
+    let cumDown = 0;
+    return speedData.map((point, idx) => {
+      if (idx > 0) {
+        const dt = (point.epoch - speedData[idx - 1].epoch) / 1000;
+        if (dt > 0) {
+          cumUp += point.up_kbps * 1024 * dt;
+          cumDown += point.down_kbps * 1024 * dt;
+        }
+      }
+      return {
+        ...point,
+        cumulative_up_kb: cumUp / 1024,
+        cumulative_down_kb: cumDown / 1024,
+      };
+    });
+  }, [speedData, chartMode]);
 
   const chartXTicks = useMemo(() => {
     if (chartData.length < 2) return [];
@@ -792,17 +812,33 @@ export default function Dashboard() {
             <h3 className="font-semibold">Traffic</h3>
           </div>
           {chartExpanded && (
-            <ButtonGroup size="sm" variant="flat" onClick={(e) => e.stopPropagation()}>
-              {CHART_PERIODS.map((period) => (
+            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+              <ButtonGroup size="sm" variant="flat">
                 <Button
-                  key={period.key}
-                  color={chartPeriod === period.key ? 'primary' : 'default'}
-                  onPress={() => setChartPeriod(period.key)}
+                  color={chartMode === 'speed' ? 'secondary' : 'default'}
+                  onPress={() => setChartMode('speed')}
                 >
-                  {period.label}
+                  Скорость
                 </Button>
-              ))}
-            </ButtonGroup>
+                <Button
+                  color={chartMode === 'volume' ? 'secondary' : 'default'}
+                  onPress={() => setChartMode('volume')}
+                >
+                  Объём
+                </Button>
+              </ButtonGroup>
+              <ButtonGroup size="sm" variant="flat">
+                {CHART_PERIODS.map((period) => (
+                  <Button
+                    key={period.key}
+                    color={chartPeriod === period.key ? 'primary' : 'default'}
+                    onPress={() => setChartPeriod(period.key)}
+                  >
+                    {period.label}
+                  </Button>
+                ))}
+              </ButtonGroup>
+            </div>
           )}
         </CardHeader>
         {chartExpanded && (
@@ -829,25 +865,35 @@ export default function Dashboard() {
                     }}
                     minTickGap={40}
                   />
-                  <YAxis tickFormatter={(value) => `${Math.round(value)} KB/s`} />
-                  <RechartsTooltip
-                    formatter={(value, name) => {
-                      const raw = Array.isArray(value) ? value[0] : value;
-                      const numeric = Number(raw);
-                      const bytesPerSecond = Number.isFinite(numeric) ? numeric * 1024 : 0;
-                      return [formatRate(Math.round(bytesPerSecond)), name === 'up_kbps' ? 'Upload' : 'Download'];
-                    }}
-                    labelFormatter={(ts) => {
-                      const d = new Date(Number(ts));
-                      if (selectedPeriod.seconds >= 86400) {
-                        return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour12: false });
-                      }
-                      return `Time: ${d.toLocaleTimeString([], { hour12: false })}`;
-                    }}
-                  />
-                  <Legend formatter={(value) => (value === 'up_kbps' ? 'Upload' : 'Download')} />
-                  <Area type="monotone" dataKey="up_kbps" stroke="#16a34a" fill="#16a34a33" strokeWidth={2} isAnimationActive={false} />
-                  <Area type="monotone" dataKey="down_kbps" stroke="#2563eb" fill="#2563eb33" strokeWidth={2} isAnimationActive={false} />
+                  {(() => {
+                    const isVolume = chartMode === 'volume';
+                    const upKey = isVolume ? 'cumulative_up_kb' : 'up_kbps';
+                    const downKey = isVolume ? 'cumulative_down_kb' : 'down_kbps';
+                    const formatValue = isVolume
+                      ? (kb: number) => formatBytes(kb * 1024)
+                      : (kb: number) => formatRate(kb * 1024);
+                    return (<>
+                      <YAxis tickFormatter={formatValue} />
+                      <RechartsTooltip
+                        formatter={(value, name) => {
+                          const raw = Array.isArray(value) ? value[0] : value;
+                          const numeric = Number(raw);
+                          const formatted = Number.isFinite(numeric) ? formatValue(numeric) : formatValue(0);
+                          return [formatted, name === upKey ? 'Upload' : 'Download'];
+                        }}
+                        labelFormatter={(ts) => {
+                          const d = new Date(Number(ts));
+                          if (selectedPeriod.seconds >= 86400) {
+                            return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour12: false });
+                          }
+                          return `Time: ${d.toLocaleTimeString([], { hour12: false })}`;
+                        }}
+                      />
+                      <Legend formatter={(value) => (value === upKey ? 'Upload' : 'Download')} />
+                      <Area type="monotone" dataKey={upKey} stroke="#16a34a" fill="#16a34a33" strokeWidth={2} isAnimationActive={false} />
+                      <Area type="monotone" dataKey={downKey} stroke="#2563eb" fill="#2563eb33" strokeWidth={2} isAnimationActive={false} />
+                    </>);
+                  })()}
                 </AreaChart>
               </ResponsiveContainer>
             </div>
