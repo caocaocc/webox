@@ -183,11 +183,17 @@ export default function ClientDetail() {
     }
   };
 
-  // Summary stats
-  const { totalUpload, totalDownload } = useMemo(() => ({
-    totalUpload: resources.reduce((s, r) => s + r.total_upload, 0),
-    totalDownload: resources.reduce((s, r) => s + r.total_download, 0),
-  }), [resources]);
+  // Summary stats: prefer client-level lifetime data (from traffic_clients table),
+  // fall back to summing resources if client data is unavailable
+  const { totalUpload, totalDownload, hostCount } = useMemo(() => {
+    const resUpload = resources.reduce((s, r) => s + r.total_upload, 0);
+    const resDownload = resources.reduce((s, r) => s + r.total_download, 0);
+    return {
+      totalUpload: client?.upload_bytes && client.upload_bytes > resUpload ? client.upload_bytes : resUpload,
+      totalDownload: client?.download_bytes && client.download_bytes > resDownload ? client.download_bytes : resDownload,
+      hostCount: client?.host_count && client.host_count > resources.length ? client.host_count : resources.length,
+    };
+  }, [client, resources]);
 
   if (loading) {
     return (
@@ -245,7 +251,7 @@ export default function ClientDetail() {
         <Card shadow="sm">
           <CardBody className="p-3">
             <p className="text-xs text-gray-500">Hosts</p>
-            <p className="text-lg font-bold">{resources.length}</p>
+            <p className="text-lg font-bold">{hostCount}</p>
           </CardBody>
         </Card>
       </div>
