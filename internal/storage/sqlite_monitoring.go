@@ -213,8 +213,8 @@ func (s *SQLiteStore) GetTrafficSamplesByTimeRange(since time.Time, maxPoints in
 			download_total,
 			CAST(AVG(up_bps) OVER (PARTITION BY bucket) AS INTEGER) AS avg_up_bps,
 			CAST(AVG(down_bps) OVER (PARTITION BY bucket) AS INTEGER) AS avg_down_bps,
-			CAST(AVG(active_connections) OVER (PARTITION BY bucket) AS INTEGER) AS avg_active_connections,
-			CAST(AVG(client_count) OVER (PARTITION BY bucket) AS INTEGER) AS avg_client_count,
+			MAX(active_connections) OVER (PARTITION BY bucket) AS peak_active_connections,
+			MAX(client_count) OVER (PARTITION BY bucket) AS peak_client_count,
 			CAST(AVG(memory_inuse) OVER (PARTITION BY bucket) AS INTEGER) AS avg_memory_inuse,
 			MAX(memory_oslimit) OVER (PARTITION BY bucket) AS max_memory_oslimit,
 			ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY timestamp_unix DESC, id DESC) AS rn
@@ -227,8 +227,8 @@ func (s *SQLiteStore) GetTrafficSamplesByTimeRange(since time.Time, maxPoints in
 		avg_down_bps,
 		upload_total,
 		download_total,
-		avg_active_connections,
-		avg_client_count,
+		peak_active_connections,
+		peak_client_count,
 		avg_memory_inuse,
 		max_memory_oslimit
 	FROM ranked
@@ -519,7 +519,7 @@ func (s *SQLiteStore) GetClientTrafficHistoryByTimeRange(sourceIP string, since 
 				proxy_chain,
 				host_count,
 				top_host,
-				CAST(AVG(active_connections) OVER (PARTITION BY bucket) AS INTEGER) AS avg_active_connections,
+				MAX(active_connections) OVER (PARTITION BY bucket) AS peak_active_connections,
 				ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY timestamp_unix DESC, id DESC) AS rn
 			FROM filtered
 		)
@@ -528,7 +528,7 @@ func (s *SQLiteStore) GetClientTrafficHistoryByTimeRange(sourceIP string, since 
 			sample_id,
 			timestamp_unix,
 			source_ip,
-			avg_active_connections,
+			peak_active_connections,
 			upload_bytes,
 			download_bytes,
 			duration_seconds,
@@ -646,7 +646,7 @@ func (s *SQLiteStore) GetRecentTrafficClients(limit int, lookback time.Duration)
 			r.source_ip,
 			r.timestamp_unix,
 			CASE WHEN r.sample_id = (SELECT sample_id FROM latest_sample) THEN 1 ELSE 0 END AS online,
-			r.active_connections,
+			CASE WHEN r.sample_id = (SELECT sample_id FROM latest_sample) THEN r.active_connections ELSE 0 END AS active_connections,
 			COALESCE(lt.total_upload, r.upload_bytes) AS upload_bytes,
 			COALESCE(lt.total_download, r.download_bytes) AS download_bytes,
 			r.duration_seconds,

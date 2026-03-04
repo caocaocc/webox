@@ -200,6 +200,58 @@ func TestGetTrafficSamplesByTimeRange_UsesUnixBuckets(t *testing.T) {
 	}
 }
 
+func TestGetTrafficSamplesByTimeRange_UsesPeakCountsPerBucket(t *testing.T) {
+	store, err := NewSQLiteStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create sqlite store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	base := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
+	rows := []struct {
+		ts                string
+		activeConnections int
+		clientCount       int
+	}{
+		{base.Format(time.RFC3339Nano), 0, 0},
+		{base.Add(400 * time.Millisecond).Format(time.RFC3339Nano), 3, 1},
+	}
+
+	for _, row := range rows {
+		if _, err := store.db.Exec(`INSERT INTO traffic_samples (
+			timestamp, timestamp_unix, up_bps, down_bps, upload_total, download_total,
+			active_connections, client_count, memory_inuse, memory_oslimit
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			row.ts,
+			mustUnix(t, row.ts),
+			0,
+			0,
+			0,
+			0,
+			row.activeConnections,
+			row.clientCount,
+			0,
+			0,
+		); err != nil {
+			t.Fatalf("insert sample %s: %v", row.ts, err)
+		}
+	}
+
+	items, err := store.GetTrafficSamplesByTimeRange(base, 1)
+	if err != nil {
+		t.Fatalf("get traffic samples by time range: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items length mismatch: got %d, want 1", len(items))
+	}
+	if items[0].ActiveConnections != 3 {
+		t.Fatalf("active connections mismatch: got %d, want 3", items[0].ActiveConnections)
+	}
+	if items[0].ClientCount != 1 {
+		t.Fatalf("client count mismatch: got %d, want 1", items[0].ClientCount)
+	}
+}
+
 func TestGetClientResourcesHistory_AggregateUnixTimestamps(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir())
 	if err != nil {
@@ -341,5 +393,97 @@ func TestGetClientTrafficHistoryByTimeRange_UsesRequestedWindow(t *testing.T) {
 	}
 	if items[0].UploadBytes != 100 || items[1].UploadBytes != 160 || items[2].UploadBytes != 240 {
 		t.Fatalf("unexpected upload bytes: got [%d %d %d]", items[0].UploadBytes, items[1].UploadBytes, items[2].UploadBytes)
+	}
+}
+
+func TestGetRecentTrafficClients_OfflineConnectionsAreZero(t *testing.T) {
+	store, err := NewSQLiteStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("create sqlite store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	oldTs := time.Now().UTC().Add(-2 * time.Minute).Format(time.RFC3339Nano)
+	newTs := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339Nano)
+
+	for idx, ts := range []string{oldTs, newTs} {
+		if _, err := store.db.Exec(`INSERT INTO traffic_samples (
+			id, timestamp, timestamp_unix, up_bps, down_bps, upload_total, download_total,
+			active_connections, client_count, memory_inuse, memory_oslimit
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			idx+1,
+			ts,
+			mustUnix(t, ts),
+			0,
+			0,
+			0,
+			0,
+			1,
+			1,
+			0,
+			0,
+		); err != nil {
+			t.Fatalf("insert sample %d: %v", idx+1, err)
+		}
+	}
+
+	if _, err := store.db.Exec(`INSERT INTO traffic_clients (
+		sample_id, timestamp, timestamp_unix, source_ip, active_connections, upload_bytes,
+		download_bytes, duration_seconds, proxy_chain, host_count, top_host
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		1,
+		oldTs,
+		mustUnix(t, oldTs),
+		"10.0.0.1",
+		5,
+		100,
+		200,
+		10,
+		"node_1",
+		1,
+		"example.com",
+	); err != nil {
+		t.Fatalf("insert offline client row: %v", err)
+	}
+
+	if _, err := store.db.Exec(`INSERT INTO traffic_clients (
+		sample_id, timestamp, timestamp_unix, source_ip, active_connections, upload_bytes,
+		download_bytes, duration_seconds, proxy_chain, host_count, top_host
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		2,
+		newTs,
+		mustUnix(t, newTs),
+		"10.0.0.2",
+		1,
+		10,
+		20,
+		5,
+		"node_2",
+		1,
+		"example.org",
+	); err != nil {
+		t.Fatalf("insert online client row: %v", err)
+	}
+
+	items, err := store.GetRecentTrafficClients(10, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("get recent traffic clients: %v", err)
+	}
+
+	foundOffline := false
+	for _, item := range items {
+		if item.SourceIP != "10.0.0.1" {
+			continue
+		}
+		foundOffline = true
+		if item.Online {
+			t.Fatalf("expected 10.0.0.1 to be offline")
+		}
+		if item.ActiveConnections != 0 {
+			t.Fatalf("offline active connections mismatch: got %d, want 0", item.ActiveConnections)
+		}
+	}
+	if !foundOffline {
+		t.Fatalf("expected offline client to be present")
 	}
 }
