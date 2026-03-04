@@ -36,6 +36,7 @@ func (s *SQLiteStore) migrate() error {
 		s.migrateV9,
 		s.migrateV10,
 		s.migrateV11,
+		s.migrateV12,
 	}
 
 	for i, m := range migrations {
@@ -817,6 +818,126 @@ func (s *SQLiteStore) migrateV11() error {
 	}
 
 	return tx.Commit()
+}
+
+// migrateV12 adds unix timestamp columns for monitoring tables so time-range
+// aggregations do not depend on SQLite parsing arbitrary timestamp strings.
+func (s *SQLiteStore) migrateV12() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	type tableSpec struct {
+		name    string
+		indexes []string
+	}
+
+	tables := []tableSpec{
+		{
+			name: "traffic_samples",
+			indexes: []string{
+				`CREATE INDEX IF NOT EXISTS idx_traffic_samples_ts_unix ON traffic_samples(timestamp_unix)`,
+			},
+		},
+		{
+			name: "traffic_clients",
+			indexes: []string{
+				`CREATE INDEX IF NOT EXISTS idx_traffic_clients_ts_unix ON traffic_clients(timestamp_unix)`,
+				`CREATE INDEX IF NOT EXISTS idx_traffic_clients_ip_ts_unix ON traffic_clients(source_ip, timestamp_unix)`,
+			},
+		},
+		{
+			name: "traffic_resources",
+			indexes: []string{
+				`CREATE INDEX IF NOT EXISTS idx_traffic_resources_ts_unix ON traffic_resources(timestamp_unix)`,
+				`CREATE INDEX IF NOT EXISTS idx_traffic_resources_ip_host_ts_unix ON traffic_resources(source_ip, host, timestamp_unix)`,
+			},
+		},
+	}
+
+	for _, table := range tables {
+		hasColumn, err := tableHasColumn(tx, table.name, "timestamp_unix")
+		if err != nil {
+			return fmt.Errorf("check %s.timestamp_unix: %w", table.name, err)
+		}
+		if !hasColumn {
+			if _, err := tx.Exec(`ALTER TABLE ` + table.name + ` ADD COLUMN timestamp_unix INTEGER NOT NULL DEFAULT 0`); err != nil {
+				return fmt.Errorf("add %s.timestamp_unix: %w", table.name, err)
+			}
+		}
+
+		if err := backfillMonitoringTimestampUnixTx(tx, table.name); err != nil {
+			return err
+		}
+
+		for _, stmt := range table.indexes {
+			if _, err := tx.Exec(stmt); err != nil {
+				return fmt.Errorf("exec %q: %w", stmt, err)
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func backfillMonitoringTimestampUnixTx(tx *sql.Tx, tableName string) error {
+	rows, err := tx.Query(`SELECT id, timestamp FROM ` + tableName + ` WHERE timestamp_unix = 0`)
+	if err != nil {
+		return fmt.Errorf("select %s timestamps: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	type updateItem struct {
+		id            int64
+		timestampUnix int64
+	}
+
+	updates := make([]updateItem, 0, 256)
+	for rows.Next() {
+		var (
+			id  int64
+			raw interface{}
+		)
+		if err := rows.Scan(&id, &raw); err != nil {
+			return fmt.Errorf("scan %s timestamp: %w", tableName, err)
+		}
+
+		ts, ok, err := parseSQLiteTimestampValue(raw)
+		if err != nil {
+			return fmt.Errorf("parse %s timestamp: %w", tableName, err)
+		}
+		if !ok {
+			continue
+		}
+
+		updates = append(updates, updateItem{
+			id:            id,
+			timestampUnix: monitoringTimestampUnix(ts),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate %s timestamps: %w", tableName, err)
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	stmt, err := tx.Prepare(`UPDATE ` + tableName + ` SET timestamp_unix = ? WHERE id = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare %s timestamp update: %w", tableName, err)
+	}
+	defer stmt.Close()
+
+	for _, item := range updates {
+		if _, err := stmt.Exec(item.timestampUnix, item.id); err != nil {
+			return fmt.Errorf("update %s timestamp_unix: %w", tableName, err)
+		}
+	}
+
+	return nil
 }
 
 func tableHasColumn(tx *sql.Tx, tableName, columnName string) (bool, error) {

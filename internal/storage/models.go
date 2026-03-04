@@ -228,6 +228,7 @@ type SiteMeasurement struct {
 type TrafficSample struct {
 	ID                int64     `json:"id,omitempty"`
 	Timestamp         time.Time `json:"timestamp"`
+	TimestampUnix     int64     `json:"-"`
 	UpBps             int64     `json:"up_bps"`   // bytes/sec
 	DownBps           int64     `json:"down_bps"` // bytes/sec
 	UploadTotal       int64     `json:"upload_total"`
@@ -243,6 +244,7 @@ type ClientTrafficSnapshot struct {
 	ID                int64     `json:"id,omitempty"`
 	SampleID          int64     `json:"sample_id"`
 	Timestamp         time.Time `json:"timestamp"`
+	TimestampUnix     int64     `json:"-"`
 	SourceIP          string    `json:"source_ip"`
 	ActiveConnections int       `json:"active_connections"`
 	UploadBytes       int64     `json:"upload_bytes"`
@@ -272,6 +274,7 @@ type ClientResourceSnapshot struct {
 	ID                int64     `json:"id,omitempty"`
 	SampleID          int64     `json:"sample_id"`
 	Timestamp         time.Time `json:"timestamp"`
+	TimestampUnix     int64     `json:"-"`
 	SourceIP          string    `json:"source_ip"`
 	Host              string    `json:"host"`
 	ActiveConnections int       `json:"active_connections"`
