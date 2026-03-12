@@ -38,6 +38,7 @@ func (s *SQLiteStore) migrate() error {
 		s.migrateV11,
 		s.migrateV12,
 		s.migrateV13,
+		s.migrateV14,
 	}
 
 	for i, m := range migrations {
@@ -963,6 +964,13 @@ func (s *SQLiteStore) migrateV13() error {
 	}
 
 	return tx.Commit()
+}
+
+// migrateV14 recovers nodes that lost their status due to the UpdateNode bug
+// (status was overwritten with an empty string when editing a node's name).
+func (s *SQLiteStore) migrateV14() error {
+	_, err := s.db.Exec(`UPDATE nodes SET status = 'pending' WHERE status = '' OR status IS NULL`)
+	return err
 }
 
 func tableHasColumn(tx *sql.Tx, tableName, columnName string) (bool, error) {
