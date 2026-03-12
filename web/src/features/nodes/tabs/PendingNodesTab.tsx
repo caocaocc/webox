@@ -76,17 +76,24 @@ export default function PendingNodesTab({
   const [searchQuery, setSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
   const filteredNodes = useMemo(() => {
-    if (!searchQuery.trim()) return nodes;
-    const q = searchQuery.toLowerCase();
-    return nodes.filter(
-      (n) =>
-        nodeDisplayTag(n).toLowerCase().includes(q) ||
-        nodeSourceTag(n).toLowerCase().includes(q) ||
-        n.server.toLowerCase().includes(q)
-    );
-  }, [nodes, searchQuery]);
+    let result = nodes;
+    if (showFavoritesOnly) {
+      result = result.filter((n) => n.is_favorite);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (n) =>
+          nodeDisplayTag(n).toLowerCase().includes(q) ||
+          nodeSourceTag(n).toLowerCase().includes(q) ||
+          n.server.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [nodes, searchQuery, showFavoritesOnly]);
 
   const totalPages = Math.max(1, Math.ceil(filteredNodes.length / ITEMS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -167,6 +174,17 @@ export default function PendingNodesTab({
             setPage(1);
           }}
         />
+        <Tooltip content={showFavoritesOnly ? 'Show all' : 'Favorites only'}>
+          <Button
+            isIconOnly
+            size="sm"
+            variant={showFavoritesOnly ? 'solid' : 'light'}
+            color={showFavoritesOnly ? 'warning' : 'default'}
+            onPress={() => setShowFavoritesOnly((v) => !v)}
+          >
+            <Star className={`w-4 h-4 ${showFavoritesOnly ? 'fill-current' : ''}`} />
+          </Button>
+        </Tooltip>
         <span className="text-xs text-gray-400 ml-auto">
           {filteredNodes.length === nodes.length
             ? `${nodes.length} pending nodes`
