@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import {
   Card,
   CardBody,
@@ -18,6 +18,7 @@ import { Search, Trash2, RotateCcw, Archive, Star } from 'lucide-react';
 import type { UnifiedNode, GeoData } from '../../../store';
 import { nodeDisplayTag, nodeSourceTag, nodeInternalTag } from '../../../store';
 import MobileNodeCard from '../components/MobileNodeCard';
+import { useNodeSort } from '../hooks/useNodeSort';
 import useIsMobile from '../../../hooks/useIsMobile';
 import { formatBytes } from '../types';
 import type { NodeTrafficRow } from '../types';
@@ -65,9 +66,32 @@ export default function ArchivedNodesTab({ nodes, geoData, nodeTrafficMap, onUna
     return result;
   }, [nodes, searchQuery, showFavoritesOnly]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredNodes.length / PAGE_SIZE));
+  const extractSortValue = useCallback(
+    (node: UnifiedNode, col: string): string | number | null => {
+      const key = `${node.server}:${node.server_port}`;
+      const geo = geoData[key];
+      const traffic = nodeTrafficMap?.get(nodeInternalTag(node));
+      switch (col) {
+        case 'country': return geo?.country_code ?? node.country ?? '';
+        case 'tag': return nodeDisplayTag(node);
+        case 'type': return node.type;
+        case 'server': return `${node.server}:${node.server_port}`;
+        case 'upload': return traffic?.upload_bytes ?? 0;
+        case 'download': return traffic?.download_bytes ?? 0;
+        case 'total': return traffic?.total_bytes ?? 0;
+        case 'failures': return node.consecutive_failures;
+        case 'archivedAt': return node.archived_at ? new Date(node.archived_at).getTime() : 0;
+        default: return null;
+      }
+    },
+    [geoData, nodeTrafficMap]
+  );
+
+  const { sortedItems, sortDescriptor, setSortDescriptor } = useNodeSort(filteredNodes, extractSortValue);
+
+  const totalPages = Math.max(1, Math.ceil(sortedItems.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const paginatedNodes = filteredNodes.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const paginatedNodes = sortedItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '—';
@@ -124,7 +148,7 @@ export default function ArchivedNodesTab({ nodes, geoData, nodeTrafficMap, onUna
         </span>
       </div>
 
-      {filteredNodes.length === 0 ? (
+      {sortedItems.length === 0 ? (
         <Card>
           <CardBody className="py-8 text-center">
             <p className="text-gray-500">No archived nodes match your search.</p>
@@ -157,6 +181,8 @@ export default function ArchivedNodesTab({ nodes, geoData, nodeTrafficMap, onUna
           aria-label="Archived nodes table"
           removeWrapper
           isCompact
+          sortDescriptor={sortDescriptor}
+          onSortChange={setSortDescriptor}
           bottomContent={
             totalPages > 1 ? (
               <div className="flex justify-center">
@@ -171,15 +197,15 @@ export default function ArchivedNodesTab({ nodes, geoData, nodeTrafficMap, onUna
           }
         >
           <TableHeader>
-            <TableColumn width={60}>Country</TableColumn>
-            <TableColumn>Tag</TableColumn>
-            <TableColumn width={100}>Type</TableColumn>
-            <TableColumn>Server:Port</TableColumn>
-            <TableColumn width={80} className="hidden xl:table-cell">Upload</TableColumn>
-            <TableColumn width={80} className="hidden xl:table-cell">Download</TableColumn>
-            <TableColumn width={80} className="hidden xl:table-cell">Total</TableColumn>
-            <TableColumn width={90}>Failures</TableColumn>
-            <TableColumn width={180}>Archived At</TableColumn>
+            <TableColumn key="country" width={60} allowsSorting>Country</TableColumn>
+            <TableColumn key="tag" allowsSorting>Tag</TableColumn>
+            <TableColumn key="type" width={100} allowsSorting>Type</TableColumn>
+            <TableColumn key="server" allowsSorting>Server:Port</TableColumn>
+            <TableColumn key="upload" width={80} className="hidden xl:table-cell" allowsSorting>Upload</TableColumn>
+            <TableColumn key="download" width={80} className="hidden xl:table-cell" allowsSorting>Download</TableColumn>
+            <TableColumn key="total" width={80} className="hidden xl:table-cell" allowsSorting>Total</TableColumn>
+            <TableColumn key="failures" width={90} allowsSorting>Failures</TableColumn>
+            <TableColumn key="archivedAt" width={180} allowsSorting>Archived At</TableColumn>
             <TableColumn width={110}>Actions</TableColumn>
           </TableHeader>
           <TableBody>
