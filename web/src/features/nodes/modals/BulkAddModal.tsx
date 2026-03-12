@@ -10,6 +10,8 @@ import {
   Card,
   CardBody,
   Chip,
+  Select,
+  SelectItem,
 } from '@nextui-org/react';
 import type { Node } from '../../../store';
 import { nodeDisplayTag, nodeSourceTag } from '../../../store';
@@ -21,6 +23,8 @@ interface BulkAddModalProps {
   setBulkUrls: (v: string) => void;
   bulkGroupTag: string;
   setBulkGroupTag: (v: string) => void;
+  plainTextProtocol: string;
+  setPlainTextProtocol: (v: string) => void;
   bulkParsing: boolean;
   bulkAdding: boolean;
   bulkResults: Array<{ url: string; node?: Node; error?: string }>;
@@ -35,6 +39,8 @@ export default function BulkAddModal({
   setBulkUrls,
   bulkGroupTag,
   setBulkGroupTag,
+  plainTextProtocol,
+  setPlainTextProtocol,
   bulkParsing,
   bulkAdding,
   bulkResults,
@@ -55,16 +61,27 @@ export default function BulkAddModal({
               minRows={5}
               maxRows={10}
             />
-            <Input
-              label="Group Tag (optional)"
-              placeholder="e.g.: work, gaming, streaming"
-              value={bulkGroupTag}
-              onChange={(e) => setBulkGroupTag(e.target.value)}
-              description="Tag for filtering these nodes later"
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Group Tag (optional)"
+                placeholder="e.g.: work, gaming, streaming"
+                value={bulkGroupTag}
+                onChange={(e) => setBulkGroupTag(e.target.value)}
+                description="Tag for filtering these nodes later"
+              />
+              <Select
+                label="Plain-text protocol"
+                selectedKeys={[plainTextProtocol]}
+                onChange={(e) => setPlainTextProtocol(e.target.value)}
+                description="Protocol for IP:PORT:USER:PASS lines"
+              >
+                <SelectItem key="http" value="http">HTTP</SelectItem>
+                <SelectItem key="socks" value="socks">SOCKS5</SelectItem>
+              </Select>
+            </div>
             <div className="flex justify-between items-center">
               <p className="text-xs text-gray-400">
-                Supported: ss://, vmess://, vless://, trojan://, hysteria2://, tuic://, socks://
+                Supported: ss://, vmess://, vless://, trojan://, hysteria2://, tuic://, socks://, http://, IP:PORT:USER:PASS
               </p>
               <Button
                 color="primary"

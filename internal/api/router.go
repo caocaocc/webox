@@ -2304,7 +2304,8 @@ func (s *Server) parseNodeURL(c *gin.Context) {
 
 func (s *Server) parseNodeURLsBulk(c *gin.Context) {
 	var req struct {
-		URLs []string `json:"urls" binding:"required"`
+		URLs            []string `json:"urls" binding:"required"`
+		DefaultProtocol string   `json:"default_protocol"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -2324,7 +2325,7 @@ func (s *Server) parseNodeURLsBulk(c *gin.Context) {
 		if trimmed == "" {
 			continue
 		}
-		node, err := parser.ParseURL(trimmed)
+		node, err := parser.ParseURLWithHint(trimmed, req.DefaultProtocol)
 		if err != nil {
 			results = append(results, parseResult{URL: trimmed, Error: err.Error()})
 		} else {

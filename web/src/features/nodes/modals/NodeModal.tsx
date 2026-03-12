@@ -97,7 +97,7 @@ export default function NodeModal({
                   <p className="text-sm text-danger">{parseError}</p>
                 )}
                 <p className="text-xs text-gray-400">
-                  Supported protocols: ss://, vmess://, vless://, trojan://, hysteria2://, tuic://, socks://
+                  Supported protocols: ss://, vmess://, vless://, trojan://, hysteria2://, tuic://, socks://, http://
                 </p>
               </div>
             )}
@@ -426,6 +426,23 @@ export default function NodeModal({
                         />
                       </div>
                     </>
+                  )}
+
+                  {nodeForm.type === 'http' && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <Input
+                        label="Username"
+                        placeholder="(optional)"
+                        value={getExtra('username') || ''}
+                        onChange={(e) => setExtra('username', e.target.value)}
+                      />
+                      <Input
+                        label="Password"
+                        placeholder="(optional)"
+                        value={getExtra('password') || ''}
+                        onChange={(e) => setExtra('password', e.target.value)}
+                      />
+                    </div>
                   )}
                 </div>
               </AccordionItem>

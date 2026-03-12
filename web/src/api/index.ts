@@ -100,7 +100,8 @@ export const nodeApi = {
   getCountries: () => api.get('/nodes/countries'),
   getByCountry: (code: string) => api.get(`/nodes/country/${code}`),
   parse: (url: string) => api.post('/nodes/parse', { url }),
-  parseBulk: (urls: string[]) => api.post('/nodes/parse-bulk', { urls }),
+  parseBulk: (urls: string[], defaultProtocol?: string) =>
+    api.post('/nodes/parse-bulk', { urls, default_protocol: defaultProtocol }),
   healthCheck: (tags?: string[]) =>
     api.post('/nodes/health-check', { tags }, { timeout: 60000 }),
   healthCheckSingle: (tag: string) =>

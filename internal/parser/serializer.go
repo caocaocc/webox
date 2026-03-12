@@ -28,6 +28,8 @@ func SerializeNode(node *storage.Node) (string, error) {
 		return serializeTuic(node)
 	case "socks":
 		return serializeSocks(node)
+	case "http":
+		return serializeHttp(node)
 	default:
 		return "", fmt.Errorf("unsupported protocol: %s", node.Type)
 	}
@@ -345,6 +347,36 @@ func serializeSocks(node *storage.Node) (string, error) {
 	}
 
 	u := fmt.Sprintf("socks://%s%s#%s", userPart, formatServerPort(node.Server, node.ServerPort), url.PathEscape(node.Tag))
+	return u, nil
+}
+
+// http://username:password@server:port#name
+func serializeHttp(node *storage.Node) (string, error) {
+	username := extraStr(node.Extra, "username")
+	password := extraStr(node.Extra, "password")
+
+	var userPart string
+	if username != "" || password != "" {
+		userPart = url.QueryEscape(username) + ":" + url.QueryEscape(password) + "@"
+	}
+
+	params := url.Values{}
+
+	if tls := extraMap(node.Extra, "tls"); tls != nil && extraBool(tls, "enabled") {
+		params.Set("tls", "1")
+		if sni := extraStr(tls, "server_name"); sni != "" && sni != node.Server {
+			params.Set("sni", sni)
+		}
+		if extraBool(tls, "insecure") {
+			params.Set("insecure", "1")
+		}
+	}
+
+	u := fmt.Sprintf("http://%s%s", userPart, formatServerPort(node.Server, node.ServerPort))
+	if len(params) > 0 {
+		u += "?" + params.Encode()
+	}
+	u += "#" + url.PathEscape(node.Tag)
 	return u, nil
 }
 

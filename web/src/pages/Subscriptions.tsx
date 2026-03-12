@@ -439,6 +439,8 @@ export default function Subscriptions() {
         setBulkUrls={bulkForm.setBulkUrls}
         bulkGroupTag={bulkForm.bulkGroupTag}
         setBulkGroupTag={bulkForm.setBulkGroupTag}
+        plainTextProtocol={bulkForm.plainTextProtocol}
+        setPlainTextProtocol={bulkForm.setPlainTextProtocol}
         bulkParsing={bulkForm.bulkParsing}
         bulkAdding={bulkForm.bulkAdding}
         bulkResults={bulkForm.bulkResults}

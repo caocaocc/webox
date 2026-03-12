@@ -215,6 +215,15 @@ func convertClashProxy(proxy ClashProxy) (*storage.Node, error) {
 			extra["username"] = proxy.Username
 		}
 
+	case "http":
+		nodeType = "http"
+		if proxy.Username != "" {
+			extra["username"] = proxy.Username
+		}
+		if proxy.Password != "" {
+			extra["password"] = proxy.Password
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported proxy type: %s", proxy.Type)
 	}

@@ -13,6 +13,7 @@ export function useBulkAddForm() {
   const [bulkParsing, setBulkParsing] = useState(false);
   const [bulkAdding, setBulkAdding] = useState(false);
   const [bulkResults, setBulkResults] = useState<Array<{ url: string; node?: Node; error?: string }>>([]);
+  const [plainTextProtocol, setPlainTextProtocol] = useState('http');
 
   const handleOpen = () => {
     setBulkUrls('');
@@ -20,6 +21,7 @@ export function useBulkAddForm() {
     setBulkResults([]);
     setBulkParsing(false);
     setBulkAdding(false);
+    setPlainTextProtocol('http');
     onOpen();
   };
 
@@ -29,7 +31,7 @@ export function useBulkAddForm() {
 
     setBulkParsing(true);
     try {
-      const response = await nodeApi.parseBulk(urls);
+      const response = await nodeApi.parseBulk(urls, plainTextProtocol);
       setBulkResults(response.data.data);
     } catch (error: any) {
       console.error('Failed to parse URLs:', error);
@@ -65,6 +67,8 @@ export function useBulkAddForm() {
     bulkAdding,
     bulkResults,
     handleOpen,
+    plainTextProtocol,
+    setPlainTextProtocol,
     onParse: handleParse,
     onAdd: handleAdd,
   };

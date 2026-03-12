@@ -16,6 +16,7 @@ export const nodeTypeOptions = [
   { value: 'hysteria2', label: 'Hysteria2' },
   { value: 'tuic', label: 'TUIC' },
   { value: 'socks', label: 'SOCKS' },
+  { value: 'http', label: 'HTTP' },
 ];
 
 export const countryOptions = [
@@ -64,7 +65,7 @@ export const utlsFingerprintOptions = [
 
 export const congestionControlOptions = ['bbr', 'cubic', 'new_reno'];
 
-export const protocolsWithTls = ['vmess', 'vless', 'trojan', 'hysteria2', 'tuic'];
+export const protocolsWithTls = ['vmess', 'vless', 'trojan', 'hysteria2', 'tuic', 'http'];
 export const protocolsWithTransport = ['vmess', 'vless', 'trojan'];
 export const SITE_CHECK_TARGETS = [
   'https://chatgpt.com',
@@ -82,6 +83,7 @@ export const knownExtraKeys: Record<string, string[]> = {
   hysteria2: ['password', 'up_mbps', 'down_mbps', 'obfs', 'tls', 'ports', 'hop_interval'],
   tuic: ['uuid', 'password', 'congestion_control', 'udp_relay_mode', 'zero_rtt_handshake', 'heartbeat', 'tls'],
   socks: ['version', 'username', 'password', 'udp_over_tcp'],
+  http: ['username', 'password', 'tls'],
 };
 
 export const UNIFIED_PAGE_SIZE = 50;

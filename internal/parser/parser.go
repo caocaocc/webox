@@ -16,8 +16,9 @@ type Parser interface {
 	Protocol() string
 }
 
-// ParseURL parses a proxy URL
-func ParseURL(rawURL string) (*storage.Node, error) {
+// ParseURLWithHint parses a proxy URL, falling back to plain-text parsing
+// with the given defaultProtocol when no "://" scheme is present.
+func ParseURLWithHint(rawURL string, defaultProtocol string) (*storage.Node, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return nil, fmt.Errorf("URL is empty")
@@ -26,7 +27,10 @@ func ParseURL(rawURL string) (*storage.Node, error) {
 	// Get protocol type
 	idx := strings.Index(rawURL, "://")
 	if idx == -1 {
-		return nil, fmt.Errorf("invalid URL format")
+		if defaultProtocol == "" {
+			defaultProtocol = "http"
+		}
+		return ParsePlainText(rawURL, defaultProtocol)
 	}
 	protocol := strings.ToLower(rawURL[:idx])
 
@@ -46,6 +50,8 @@ func ParseURL(rawURL string) (*storage.Node, error) {
 		parser = &TuicParser{}
 	case "socks", "socks5", "socks4", "socks4a":
 		parser = &SocksParser{}
+	case "http", "https":
+		parser = &HttpParser{}
 	default:
 		return nil, fmt.Errorf("unsupported protocol: %s", protocol)
 	}
@@ -56,6 +62,11 @@ func ParseURL(rawURL string) (*storage.Node, error) {
 	}
 
 	return node, nil
+}
+
+// ParseURL parses a proxy URL
+func ParseURL(rawURL string) (*storage.Node, error) {
+	return ParseURLWithHint(rawURL, "http")
 }
 
 // ParseSubscriptionContent parses subscription content
@@ -107,9 +118,14 @@ func ParseSubscriptionContent(content string) ([]storage.Node, error) {
 			continue
 		}
 
-		// Parse single URL
+		// Parse single URL or plain-text line
 		if strings.Contains(line, "://") {
 			node, err := ParseURL(line)
+			if err == nil && node != nil {
+				nodes = append(nodes, *node)
+			}
+		} else {
+			node, err := ParsePlainText(line, "http")
 			if err == nil && node != nil {
 				nodes = append(nodes, *node)
 			}
