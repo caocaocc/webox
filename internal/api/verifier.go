@@ -8,6 +8,8 @@ import (
 	"github.com/xiaobei/singbox-manager/internal/storage"
 )
 
+const verifiedNodeDemotionThreshold = 3
+
 // RunVerification performs a full verification cycle for all pending and verified nodes.
 func (s *Server) RunVerification() {
 	s.runVerificationWithTagFilter(nil)
@@ -266,21 +268,29 @@ func (s *Server) runVerificationWithTagFilter(tagSet map[string]struct{}) {
 				logger.Printf("[verifier] Favorite node %d (%s) failed check but skipping demotion", vn.ID, unifiedDisplayName(vn))
 				s.store.ResetConsecutiveFailures(vn.ID)
 			} else {
-				// Demote: verified -> pending
-				if err := s.store.DemoteNode(vn.ID); err != nil {
-					logger.Printf("[verifier] Failed to demote node %d: %v", vn.ID, err)
+				failures, err := s.store.IncrementConsecutiveFailures(vn.ID)
+				if err != nil {
+					logger.Printf("[verifier] Failed to increment failures for verified node %d: %v", vn.ID, err)
 					continue
 				}
-				vlog.VerifiedDemoted++
-				configChanged = true
-				s.eventBus.Publish("verify:node_demoted", map[string]interface{}{
-					"tag":          unifiedDisplayName(vn),
-					"internal_tag": unifiedRoutingTag(vn),
-					"display_name": unifiedDisplayName(vn),
-					"source_tag":   unifiedSourceTag(vn),
-					"server":       vn.Server,
-					"server_port":  vn.ServerPort,
-				})
+				if failures >= verifiedNodeDemotionThreshold {
+					// Demote only after several consecutive failures to reduce flapping.
+					if err := s.store.DemoteNode(vn.ID); err != nil {
+						logger.Printf("[verifier] Failed to demote node %d: %v", vn.ID, err)
+						continue
+					}
+					vlog.VerifiedDemoted++
+					configChanged = true
+					s.eventBus.Publish("verify:node_demoted", map[string]interface{}{
+						"tag":          unifiedDisplayName(vn),
+						"internal_tag": unifiedRoutingTag(vn),
+						"display_name": unifiedDisplayName(vn),
+						"source_tag":   unifiedSourceTag(vn),
+						"server":       vn.Server,
+						"server_port":  vn.ServerPort,
+						"failures":     failures,
+					})
+				}
 			}
 		} else {
 			// Reset failures counter
