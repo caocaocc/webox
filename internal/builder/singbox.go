@@ -3,6 +3,7 @@ package builder
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -138,6 +139,11 @@ type CacheFileConfig struct {
 	Enabled     bool   `json:"enabled"`
 	Path        string `json:"path,omitempty"`
 	StoreFakeIP bool   `json:"store_fakeip,omitempty"` // Persist FakeIP mappings
+}
+
+type dnsServerSpec struct {
+	Type   string
+	Server string
 }
 
 // ConfigBuilder builds sing-box configuration
@@ -287,28 +293,122 @@ func ParseSystemHosts() map[string][]string {
 	return hosts
 }
 
+func splitDNSServerList(raw string, defaults []string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return append([]string(nil), defaults...)
+	}
+
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		switch r {
+		case ',', ';', '\n', '\r', '\t':
+			return true
+		default:
+			return false
+		}
+	})
+
+	entries := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			entries = append(entries, field)
+		}
+	}
+	if len(entries) == 0 {
+		return append([]string(nil), defaults...)
+	}
+	return entries
+}
+
+func parseDNSServerSpec(raw string) (dnsServerSpec, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return dnsServerSpec{}, false
+	}
+
+	if !strings.Contains(raw, "://") {
+		return dnsServerSpec{Type: "udp", Server: raw}, true
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return dnsServerSpec{}, false
+	}
+
+	serverType := strings.ToLower(strings.TrimSpace(u.Scheme))
+	switch serverType {
+	case "udp", "tcp", "tls":
+		host := strings.TrimSpace(u.Host)
+		if host == "" {
+			host = strings.TrimSpace(u.Opaque)
+		}
+		if host == "" {
+			return dnsServerSpec{}, false
+		}
+		return dnsServerSpec{Type: serverType, Server: host}, true
+	case "https", "h3", "quic":
+		if strings.TrimSpace(u.Host) == "" {
+			return dnsServerSpec{}, false
+		}
+		return dnsServerSpec{Type: serverType, Server: raw}, true
+	default:
+		return dnsServerSpec{}, false
+	}
+}
+
+func buildDNSServerChain(prefix, raw string, defaults []string, detour string) []DNSServer {
+	entries := splitDNSServerList(raw, defaults)
+	servers := make([]DNSServer, 0, len(entries))
+	seen := make(map[string]bool, len(entries))
+
+	for _, entry := range entries {
+		spec, ok := parseDNSServerSpec(entry)
+		if !ok {
+			continue
+		}
+		key := spec.Type + "|" + spec.Server + "|" + detour
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		servers = append(servers, DNSServer{
+			Tag:    fmt.Sprintf("%s_%d", prefix, len(servers)+1),
+			Type:   spec.Type,
+			Server: spec.Server,
+			Detour: detour,
+		})
+	}
+
+	return servers
+}
+
 // buildDNS builds DNS configuration
 func (b *ConfigBuilder) buildDNS() *DNSConfig {
-	// Base DNS servers
-	servers := []DNSServer{
-		{
-			Tag:    "dns_proxy",
-			Type:   "https",
-			Server: "8.8.8.8",
-			Detour: "Proxy",
-		},
-		{
-			Tag:    "dns_direct",
-			Type:   "udp",
-			Server: "223.5.5.5",
-		},
-		{
-			Tag:        "dns_fakeip",
-			Type:       "fakeip",
-			Inet4Range: "198.18.0.0/15",
-			Inet6Range: "fc00::/18",
-		},
+	proxyServers := buildDNSServerChain("dns_proxy", b.settings.ProxyDNS, []string{
+		"https://1.1.1.1/dns-query",
+		"https://dns.google/dns-query",
+	}, "Proxy")
+	if len(proxyServers) == 0 {
+		proxyServers = buildDNSServerChain("dns_proxy", "", []string{"https://1.1.1.1/dns-query"}, "Proxy")
 	}
+
+	directServers := buildDNSServerChain("dns_direct", b.settings.DirectDNS, []string{
+		"https://1.1.1.1/dns-query",
+		"https://dns.google/dns-query",
+	}, "")
+	if len(directServers) == 0 {
+		directServers = buildDNSServerChain("dns_direct", "", []string{"https://1.1.1.1/dns-query"}, "")
+	}
+
+	servers := append([]DNSServer{}, proxyServers...)
+	servers = append(servers, directServers...)
+	servers = append(servers, DNSServer{
+		Tag:        "dns_fakeip",
+		Type:       "fakeip",
+		Inet4Range: "198.18.0.0/15",
+		Inet6Range: "fc00::/18",
+	})
 
 	// Base DNS rules
 	rules := []DNSRule{
@@ -374,7 +474,7 @@ func (b *ConfigBuilder) buildDNS() *DNSConfig {
 		Strategy:         "prefer_ipv4",
 		Servers:          servers,
 		Rules:            rules,
-		Final:            "dns_proxy",
+		Final:            proxyServers[0].Tag,
 		IndependentCache: true,
 	}
 }
@@ -782,7 +882,7 @@ func (b *ConfigBuilder) buildRoute() *RouteConfig {
 		Final:               "Final",
 		// Default domain resolver: resolves all outbound server addresses to avoid DNS loops
 		DefaultDomainResolver: &DomainResolver{
-			Server:     "dns_direct",
+			Server:     "dns_direct_1",
 			RewriteTTL: 60,
 		},
 	}
