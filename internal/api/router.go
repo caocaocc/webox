@@ -1497,8 +1497,11 @@ func (s *Server) autoApplyConfig() error {
 		return err
 	}
 
-	// If sing-box is running, restart it
+	// If sing-box is running, prefer hot reload to avoid dropping sessions.
 	if s.processManager.IsRunning() {
+		if err := s.processManager.Reload(); err == nil {
+			return nil
+		}
 		return s.processManager.Restart()
 	}
 
@@ -3709,7 +3712,7 @@ func (s *Server) setProxyMode(c *gin.Context) {
 	}
 
 	// Regenerate config and save to file
-	configJSON, err := s.buildConfig()
+	configJSON, _, err := s.buildAndValidateConfig()
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"data": gin.H{

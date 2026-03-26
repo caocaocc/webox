@@ -509,7 +509,7 @@ func DefaultSettings() *Settings {
 		GithubProxy:          "",   // no proxy by default
 		VerificationInterval: 30,   // default 30 minutes
 		ArchiveThreshold:     10,   // default 10 consecutive failures
-		ProxyMode:            ProxyModeRule,
+		ProxyMode:            ProxyModeGlobal,
 		BlockedCountries:     []string{},
 	}
 }
