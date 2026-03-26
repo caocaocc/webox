@@ -485,14 +485,31 @@ func (pm *ProcessManager) Restart() error {
 // Reload Hot reload config
 func (pm *ProcessManager) Reload() error {
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
+	running := pm.running
+	pid := pm.pid
+	cmd := pm.cmd
+	pm.mu.RUnlock()
 
-	if !pm.running || pm.cmd == nil || pm.cmd.Process == nil {
+	if !running {
 		return fmt.Errorf("sing-box is not running")
 	}
 
+	var proc *os.Process
+	switch {
+	case cmd != nil && cmd.Process != nil:
+		proc = cmd.Process
+	case pid > 0:
+		found, err := os.FindProcess(pid)
+		if err != nil {
+			return fmt.Errorf("failed to find sing-box process: %w", err)
+		}
+		proc = found
+	default:
+		return fmt.Errorf("sing-box process handle is not available")
+	}
+
 	// sing-box supports SIGHUP hot reload
-	if err := pm.cmd.Process.Signal(syscall.SIGHUP); err != nil {
+	if err := proc.Signal(syscall.SIGHUP); err != nil {
 		return fmt.Errorf("failed to reload config: %w", err)
 	}
 
